@@ -1,2 +1,2 @@
-aiogram==3.0.0b8
+aiogram==3.8.0
 pytz==2024.1

@@ -2,14 +2,15 @@ import os
 import logging
 from datetime import datetime
 import pytz
+import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
-import asyncio
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Токен бота
 BOT_TOKEN = "8547013591:AAF4aeK79jP4Gt7-GFWjcT8_O2KVb4yRKcI"
@@ -22,22 +23,23 @@ dp = Dispatcher()
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
 # Создание клавиатуры
-keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [
-            KeyboardButton(text="🍼 Кормление"),
-            KeyboardButton(text="💩 Покакал")
+def get_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="🍼 Кормление"),
+                KeyboardButton(text="💩 Покакал")
+            ],
+            [
+                KeyboardButton(text="😴 Сон"),
+                KeyboardButton(text="🤮 Срыгивание")
+            ],
+            [
+                KeyboardButton(text="💊 Витамин D")
+            ]
         ],
-        [
-            KeyboardButton(text="😴 Сон"),
-            KeyboardButton(text="🤮 Срыгивание")
-        ],
-        [
-            KeyboardButton(text="💊 Витамин D")
-        ]
-    ],
-    resize_keyboard=True
-)
+        resize_keyboard=True
+    )
 
 # Функция для получения текущего времени по МСК
 def get_moscow_time():
@@ -49,7 +51,7 @@ async def send_welcome(message: types.Message):
     await message.answer(
         "👶 Дневник ребёнка\n\n"
         "Выберите действие на клавиатуре:",
-        reply_markup=keyboard
+        reply_markup=get_keyboard()
     )
 
 # Обработчики кнопок
@@ -78,9 +80,17 @@ async def log_vitamin_d(message: types.Message):
     time = get_moscow_time()
     await message.answer(f"💊 Витамин D в {time}")
 
+# Обработка любых других сообщений
+@dp.message()
+async def other_messages(message: types.Message):
+    await message.answer(
+        "Пожалуйста, используйте кнопки на клавиатуре",
+        reply_markup=get_keyboard()
+    )
+
 # Запуск бота
 async def main():
-    logging.info("Бот запущен...")
+    logger.info("Бот запускается...")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':

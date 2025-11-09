@@ -64,13 +64,16 @@ async def delete_user_message_safe(chat_id: int, message_id: int, max_retries: i
     return False
 
 # Функция для обработки сообщений - удаляет только сообщения пользователя через 10 секунд
-async def handle_user_message(message: types.Message, response_text: str):
+async def handle_user_message(message: types.Message, response_text: str, include_keyboard: bool = True):
     """Отправляет ответ и удаляет сообщение пользователя через 10 секунд"""
     user_message_id = message.message_id
     chat_id = message.chat.id
     
     # Отправляем ответ бота (не удаляем его)
-    bot_response = await message.answer(response_text)
+    if include_keyboard:
+        bot_response = await message.answer(response_text, reply_markup=get_keyboard())
+    else:
+        bot_response = await message.answer(response_text)
     
     # Ждем 10 секунд и пытаемся удалить сообщение пользователя
     await asyncio.sleep(10)
@@ -88,46 +91,51 @@ async def send_welcome(message: types.Message):
         "💩 Покакал\n"  
         "😴 Сон\n"
         "🤮 Срыгивание\n"
-        "💊 Витамин D"
+        "💊 Витамин D",
+        include_keyboard=True
     )
 
 # Обработчики событий
 @dp.message(F.text == "🍼 Кормление")
 async def log_feeding(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"🍼 Кормление в {time}")
+    await handle_user_message(message, f"🍼 Кормление в {time}", include_keyboard=True)
 
 @dp.message(F.text == "💩 Покакал")
 async def log_poop(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"💩 Покакал в {time}")
+    await handle_user_message(message, f"💩 Покакал в {time}", include_keyboard=True)
 
 @dp.message(F.text == "😴 Сон")
 async def log_sleep(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"😴 Сон в {time}")
+    await handle_user_message(message, f"😴 Сон в {time}", include_keyboard=True)
 
 @dp.message(F.text == "🤮 Срыгивание")
 async def log_spitup(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"🤮 Срыгивание в {time}")
+    await handle_user_message(message, f"🤮 Срыгивание в {time}", include_keyboard=True)
 
 @dp.message(F.text == "💊 Витамин D")
 async def log_vitamin_d(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"💊 Витамин D в {time}")
+    await handle_user_message(message, f"💊 Витамин D в {time}", include_keyboard=True)
 
 # Команда для тестирования
 @dp.message(Command("test"))
 async def test_cleanup(message: types.Message):
-    await handle_user_message(message, "🧪 Тестовое сообщение - сообщение пользователя удалится через 10 секунд, это сообщение останется")
+    await handle_user_message(message, 
+        "🧪 Тестовое сообщение - сообщение пользователя удалится через 10 секунд, это сообщение останется",
+        include_keyboard=True
+    )
 
 # Обработка любых других сообщений (если пользователь пишет текст вместо кнопок)
 @dp.message()
 async def other_messages(message: types.Message):
     await handle_user_message(message, 
         "Пожалуйста, используйте кнопки на клавиатуре для записи событий.\n\n"
-        "Если клавиатура не отображается, отправьте /start"
+        "Если клавиатура не отображается, отправьте /start",
+        include_keyboard=True
     )
 
 # Запуск бота

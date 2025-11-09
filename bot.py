@@ -5,29 +5,26 @@ import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiohttp import web
+import ssl
+import os
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токен бота
+# Токен бота и настройки
 BOT_TOKEN = "8547013591:AAF4aeK79jP4Gt7-GFWjcT8_O2KVb4yRKcI"
+WEBHOOK_HOST = 'https://your-bot-name.onrender.com'  # Замените на ваш URL
+WEBHOOK_PATH = '/webhook'
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Инициализация бота
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+# Инициализация бота и диспетчера
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # Московский часовой пояс
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
-
-# Функция для получения текущего времени по МСК
-def get_moscow_time():
-    return datetime.now(MOSCOW_TZ).strftime("%H:%M")
 
 # Создание клавиатуры
 def get_keyboard():
@@ -48,100 +45,79 @@ def get_keyboard():
         resize_keyboard=True
     )
 
-# Улучшенная функция для удаления сообщений с повторными попытками
-async def delete_user_message_safe(chat_id: int, message_id: int, max_retries: int = 3):
-    """Безопасное удаление сообщения пользователя с повторными попытками"""
-    for attempt in range(max_retries):
-        try:
-            await bot.delete_message(chat_id, message_id)
-            logger.info(f"✅ Сообщение пользователя {message_id} удалено")
-            return True
-        except Exception as e:
-            logger.warning(f"⚠️ Попытка {attempt + 1}: не удалось удалить сообщение пользователя {message_id}. Ошибка: {e}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2)  # Ждем 2 секунды перед повторной попыткой
-    logger.error(f"❌ Не удалось удалить сообщение пользователя {message_id} после {max_retries} попыток")
-    return False
+# Функция для получения текущего времени по МСК
+def get_moscow_time():
+    return datetime.now(MOSCOW_TZ).strftime("%H:%M")
 
-# Функция для обработки сообщений - удаляет только сообщения пользователя через 10 секунд
-async def handle_user_message(message: types.Message, response_text: str, include_keyboard: bool = True):
-    """Отправляет ответ и удаляет сообщение пользователя через 10 секунд"""
-    user_message_id = message.message_id
-    chat_id = message.chat.id
-    
-    # Отправляем ответ бота (не удаляем его)
-    if include_keyboard:
-        bot_response = await message.answer(response_text, reply_markup=get_keyboard())
-    else:
-        bot_response = await message.answer(response_text)
-    
-    # Ждем 10 секунд и пытаемся удалить сообщение пользователя
+# Функция для удаления сообщения пользователя через 10 секунд
+async def delete_user_message_after_delay(chat_id: int, message_id: int):
     await asyncio.sleep(10)
-    
-    # Пытаемся удалить сообщение пользователя
-    await delete_user_message_safe(chat_id, user_message_id)
+    try:
+        await bot.delete_message(chat_id, message_id)
+        logger.info("✅ Сообщение пользователя удалено")
+    except Exception as e:
+        logger.error(f"❌ Не удалось удалить сообщение пользователя: {e}")
 
-# Основное меню
+# Обработчики сообщений
 @dp.message(Command("start", "help"))
 async def send_welcome(message: types.Message):
-    await handle_user_message(message,
-        "👶 Дневник ребёнка\n\n"
-        "Нажмите на кнопку чтобы записать событие:\n\n"
-        "🍼 Кормление\n"
-        "💩 Покакал\n"  
-        "😴 Сон\n"
-        "🤮 Срыгивание\n"
-        "💊 Витамин D",
-        include_keyboard=True
+    await message.answer(
+        "👶 Дневник ребёнка\n\nВыберите действие на клавиатуре:",
+        reply_markup=get_keyboard()
     )
+    asyncio.create_task(delete_user_message_after_delay(message.chat.id, message.message_id))
 
-# Обработчики событий
 @dp.message(F.text == "🍼 Кормление")
 async def log_feeding(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"🍼 Кормление в {time}", include_keyboard=True)
+    await message.answer(f"🍼 Кормление в {time}")
+    asyncio.create_task(delete_user_message_after_delay(message.chat.id, message.message_id))
 
 @dp.message(F.text == "💩 Покакал")
 async def log_poop(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"💩 Покакал в {time}", include_keyboard=True)
+    await message.answer(f"💩 Покакал в {time}")
+    asyncio.create_task(delete_user_message_after_delay(message.chat.id, message.message_id))
 
 @dp.message(F.text == "😴 Сон")
 async def log_sleep(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"😴 Сон в {time}", include_keyboard=True)
+    await message.answer(f"😴 Сон в {time}")
+    asyncio.create_task(delete_user_message_after_delay(message.chat.id, message.message_id))
 
 @dp.message(F.text == "🤮 Срыгивание")
 async def log_spitup(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"🤮 Срыгивание в {time}", include_keyboard=True)
+    await message.answer(f"🤮 Срыгивание в {time}")
+    asyncio.create_task(delete_user_message_after_delay(message.chat.id, message.message_id))
 
 @dp.message(F.text == "💊 Витамин D")
 async def log_vitamin_d(message: types.Message):
     time = get_moscow_time()
-    await handle_user_message(message, f"💊 Витамин D в {time}", include_keyboard=True)
+    await message.answer(f"💊 Витамин D в {time}")
+    asyncio.create_task(delete_user_message_after_delay(message.chat.id, message.message_id))
 
-# Команда для тестирования
-@dp.message(Command("test"))
-async def test_cleanup(message: types.Message):
-    await handle_user_message(message, 
-        "🧪 Тестовое сообщение - сообщение пользователя удалится через 10 секунд, это сообщение останется",
-        include_keyboard=True
-    )
+# Настройка вебхуков
+async def on_startup(app):
+    await bot.set_webhook(WEBHOOK_URL)
 
-# Обработка любых других сообщений (если пользователь пишет текст вместо кнопок)
-@dp.message()
-async def other_messages(message: types.Message):
-    await handle_user_message(message, 
-        "Пожалуйста, используйте кнопки на клавиатуре для записи событий.\n\n"
-        "Если клавиатура не отображается, отправьте /start",
-        include_keyboard=True
-    )
+async def handle_webhook(request):
+    url = str(request.url)
+    index = url.rfind('/')
+    token = url[index+1:]
+    
+    if token == BOT_TOKEN:
+        update = types.Update(**await request.json())
+        await dp.feed_webhook_update(bot, update)
+        return web.Response()
+    else:
+        return web.Response(status=403)
 
-# Запуск бота
-async def main():
-    logger.info("Бот запускается...")
-    await dp.start_polling(bot)
+# Создание приложения
+app = web.Application()
+app.router.add_post('/webhook', handle_webhook)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    # Запуск при запуске скрипта
+    port = int(os.environ.get('PORT', 3000))
+    web.run_app(app, host='0.0.0.0', port=port)

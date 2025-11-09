@@ -6,7 +6,6 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiohttp import web
-import ssl
 import os
 
 # Настройка логирования
@@ -15,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Токен бота и настройки
 BOT_TOKEN = "8547013591:AAF4aeK79jP4Gt7-GFWjcT8_O2KVb4yRKcI"
-WEBHOOK_HOST = 'https://your-bot-name.onrender.com'  # Замените на ваш URL
-WEBHOOK_PATH = '/webhook'
+WEBHOOK_HOST = 'https://your-bot-name.onrender.com'  # ЗАМЕНИТЕ на ваш реальный URL Render
+WEBHOOK_PATH = f'/webhook/{BOT_TOKEN}'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 # Инициализация бота и диспетчера
@@ -99,23 +98,40 @@ async def log_vitamin_d(message: types.Message):
 
 # Настройка вебхуков
 async def on_startup(app):
-    await bot.set_webhook(WEBHOOK_URL)
+    # Устанавливаем вебхук при запуске
+    webhook_info = await bot.get_webhook_info()
+    if webhook_info.url != WEBHOOK_URL:
+        await bot.set_webhook(WEBHOOK_URL)
+        logger.info(f"✅ Вебхук установлен: {WEBHOOK_URL}")
+    else:
+        logger.info("✅ Вебхук уже установлен")
 
 async def handle_webhook(request):
-    url = str(request.url)
-    index = url.rfind('/')
-    token = url[index+1:]
-    
-    if token == BOT_TOKEN:
-        update = types.Update(**await request.json())
+    """Обработчик входящих вебхуков от Telegram"""
+    try:
+        # Проверяем, что запрос содержит JSON
+        update_data = await request.json()
+        update = types.Update(**update_data)
+        
+        # Передаем обновление в диспетчер
         await dp.feed_webhook_update(bot, update)
-        return web.Response()
-    else:
-        return web.Response(status=403)
+        return web.Response(status=200)
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки вебхука: {e}")
+        return web.Response(status=500)
 
 # Создание приложения
 app = web.Application()
-app.router.add_post('/webhook', handle_webhook)
+app.router.add_post(f'/webhook/{BOT_TOKEN}', handle_webhook)
+
+# Добавляем startup хук
+app.on_startup.append(on_startup)
+
+# Health check endpoint
+async def health_check(request):
+    return web.Response(text="Bot is running")
+
+app.router.add_get('/health', health_check)
 
 if __name__ == '__main__':
     # Запуск при запуске скрипта

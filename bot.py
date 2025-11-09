@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Токен бота и настройки вебхука
 BOT_TOKEN = "8547013591:AAF4aeK79jP4Gt7-GFWjcT8_O2KVb4yRKcI"
-WEBHOOK_HOST = 'https://baby-diary-bot-1.onrender.com'  # ВАШ РЕАЛЬНЫЙ URL
+WEBHOOK_HOST = 'https://baby-diary-bot-1.onrender.com'
 WEBHOOK_PATH = f'/webhook/{BOT_TOKEN}'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
@@ -48,6 +48,23 @@ def get_keyboard():
 def get_moscow_time():
     return datetime.now(MOSCOW_TZ).strftime("%H:%M")
 
+# Функция для удаления сообщения пользователя с повторными попытками
+async def delete_user_message_with_retry(chat_id: int, message_id: int, max_attempts: int = 3):
+    """Удаляет сообщение пользователя с повторными попытками в случае ошибки"""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await asyncio.sleep(10)  # Ждем 10 секунд перед удалением
+            await bot.delete_message(chat_id, message_id)
+            logger.info(f"✅ Сообщение пользователя удалено (попытка {attempt})")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось удалить сообщение пользователя (попытка {attempt}): {e}")
+            if attempt < max_attempts:
+                await asyncio.sleep(5)  # Ждем 5 секунд перед повторной попыткой
+    
+    logger.error(f"❌ Не удалось удалить сообщение пользователя после {max_attempts} попыток")
+    return False
+
 # Обработчики команд
 @dp.message(Command("start", "help"))
 async def send_welcome(message: types.Message):
@@ -55,47 +72,55 @@ async def send_welcome(message: types.Message):
         "👶 Дневник ребёнка\n\nВыберите действие на клавиатуре:",
         reply_markup=get_keyboard()
     )
+    # Запускаем удаление сообщения пользователя
+    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 @dp.message(F.text == "🍼 Кормление")
 async def log_feeding(message: types.Message):
     time = get_moscow_time()
     await message.answer(f"🍼 Кормление в {time}")
+    # Запускаем удаление сообщения пользователя
+    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 @dp.message(F.text == "💩 Покакал")
 async def log_poop(message: types.Message):
     time = get_moscow_time()
     await message.answer(f"💩 Покакал в {time}")
+    # Запускаем удаление сообщения пользователя
+    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 @dp.message(F.text == "😴 Сон")
 async def log_sleep(message: types.Message):
     time = get_moscow_time()
     await message.answer(f"😴 Сон в {time}")
+    # Запускаем удаление сообщения пользователя
+    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 @dp.message(F.text == "🤮 Срыгивание")
 async def log_spitup(message: types.Message):
     time = get_moscow_time()
     await message.answer(f"🤮 Срыгивание в {time}")
+    # Запускаем удаление сообщения пользователя
+    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 @dp.message(F.text == "💊 Витамин D")
 async def log_vitamin_d(message: types.Message):
     time = get_moscow_time()
     await message.answer(f"💊 Витамин D в {time}")
+    # Запускаем удаление сообщения пользователя
+    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 # Настройка вебхуков
 async def on_startup(app):
-    # Устанавливаем вебхук при запуске
     await bot.set_webhook(WEBHOOK_URL)
     logger.info(f"✅ Вебхук установлен: {WEBHOOK_URL}")
 
 async def handle_webhook(request):
-    """Обработчик входящих вебхуков от Telegram"""
     try:
-        # Проверяем токен в URL
         token = request.match_info.get('token')
         if token != BOT_TOKEN:
             return web.Response(status=403)
         
-        # Обрабатываем обновление
         update_data = await request.json()
         update = types.Update(**update_data)
         await dp.feed_webhook_update(bot, update)
@@ -117,6 +142,5 @@ app.router.add_get('/health', health_check)
 app.router.add_get('/', health_check)
 
 if __name__ == '__main__':
-    # Запуск веб-сервера
     port = int(os.environ.get('PORT', 3000))
     web.run_app(app, host='0.0.0.0', port=port)

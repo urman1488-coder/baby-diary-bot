@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
@@ -48,6 +48,11 @@ def get_keyboard():
 def get_moscow_time():
     return datetime.now(MOSCOW_TZ).strftime("%H:%M")
 
+# Функция для получения времени следующего кормления (+3 часа)
+def get_next_feeding_time():
+    next_time = datetime.now(MOSCOW_TZ) + timedelta(hours=3)
+    return next_time.strftime("%H:%M")
+
 # Функция для удаления сообщения пользователя с повторными попытками
 async def delete_user_message_with_retry(chat_id: int, message_id: int, max_attempts: int = 3):
     """Удаляет сообщение пользователя с повторными попытками в случае ошибки"""
@@ -78,7 +83,8 @@ async def send_welcome(message: types.Message):
 @dp.message(F.text == "🍼 Кормление")
 async def log_feeding(message: types.Message):
     time = get_moscow_time()
-    await message.answer(f"🍼 Кормление в {time}")
+    next_time = get_next_feeding_time()
+    await message.answer(f"🍼 Кормление в {time}\n🕒 Следующее кормление в {next_time}")
     # Запускаем удаление сообщения пользователя
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 

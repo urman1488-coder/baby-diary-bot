@@ -25,6 +25,9 @@ dp = Dispatcher()
 # Московский часовой пояс
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
+# Словарь для отслеживания обработанных callback'ов (защита от дублирования)
+processed_callbacks = set()
+
 # Создание клавиатуры
 def get_keyboard():
     return ReplyKeyboardMarkup(
@@ -120,11 +123,22 @@ async def log_sleep(message: types.Message):
         logger.error(f"❌ Ошибка при обработке сна: {e}")
         await message.answer("❌ Произошла ошибка при записи сна")
 
-# Обработчик нажатия на inline-кнопку
+# Обработчик нажатия на inline-кнопку с защитой от дублирования
 @dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
     try:
-        logger.info(f"📨 Получен callback: {callback.data}")
+        # Создаем уникальный идентификатор для этого callback
+        callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
+        
+        # Проверяем, не обрабатывали ли мы уже этот callback
+        if callback_id in processed_callbacks:
+            logger.info(f"🔄 Пропускаем дублирующий callback: {callback_id}")
+            await callback.answer()
+            return
+            
+        # Добавляем callback в список обработанных
+        processed_callbacks.add(callback_id)
+        logger.info(f"📨 Обрабатываем callback: {callback_id}")
         
         # Извлекаем timestamp из callback_data
         timestamp_str = callback.data.split(":")[1]
@@ -173,6 +187,9 @@ async def log_vitamin_d(message: types.Message):
 
 # Настройка вебхуков
 async def on_startup(app):
+    # Очищаем список обработанных callback'ов при запуске
+    processed_callbacks.clear()
+    
     # Указываем allowed_updates для получения callback_query
     await bot.set_webhook(
         WEBHOOK_URL,

@@ -25,7 +25,7 @@ dp = Dispatcher()
 # Московский часовой пояс
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
-# Создание клавиатуры (исходная версия)
+# Создание клавиатуры
 def get_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -94,47 +94,65 @@ async def log_poop(message: types.Message):
 
 @dp.message(F.text == "😴 Сон")
 async def log_sleep(message: types.Message):
-    current_time = datetime.now(MOSCOW_TZ)
-    timestamp = int(current_time.timestamp())
-    
-    # Создаем inline-кнопку с временем начала сна
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="👶 Проснулся", 
-                    callback_data=f"wakeup:{timestamp}"
-                )
+    try:
+        current_time = datetime.now(MOSCOW_TZ)
+        timestamp = int(current_time.timestamp())
+        
+        # Создаем inline-кнопку с временем начала сна
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="👶 Проснулся", 
+                        callback_data=f"wakeup:{timestamp}"
+                    )
+                ]
             ]
-        ]
-    )
-    
-    await message.answer(
-        f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
-        "Нажмите кнопку ниже, когда ребёнок проснётся.",
-        reply_markup=keyboard
-    )
-    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+        )
+        
+        await message.answer(
+            f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
+            "Нажмите кнопку ниже, когда ребёнок проснётся.",
+            reply_markup=keyboard
+        )
+        asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обработке сна: {e}")
+        await message.answer("❌ Произошла ошибка при записи сна")
 
-# Обработчик нажатия на inline-кнопку (исправленная версия)
+# Обработчик нажатия на inline-кнопку (с улучшенной обработкой ошибок)
 @dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
-    # Извлекаем время начала сна из callback_data
-    timestamp_str = callback.data.split(":")[1]
-    sleep_start = datetime.fromtimestamp(int(timestamp_str), MOSCOW_TZ)
-    wake_time = datetime.now(MOSCOW_TZ)
-    
-    duration = wake_time - sleep_start
-    hours = int(duration.total_seconds() // 3600)
-    minutes = int((duration.total_seconds() % 3600) // 60)
-    
-    # Обновляем сообщение с результатом (исправленная версия)
-    await callback.message.edit_text(
-        f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
-        f"⏱ Длительность: {hours} часов {minutes} минут"
-    )
-    
-    await callback.answer()
+    try:
+        # Извлекаем время начала сна из callback_data
+        timestamp_str = callback.data.split(":")[1]
+        sleep_start = datetime.fromtimestamp(int(timestamp_str), MOSCOW_TZ)
+        wake_time = datetime.now(MOSCOW_TZ)
+        
+        # Корректируем дату, если сон перешел через полночь
+        if wake_time < sleep_start:
+            # Предполагаем, что сон начался вчера
+            sleep_start = sleep_start.replace(year=wake_time.year, month=wake_time.month, day=wake_time.day)
+            sleep_start -= timedelta(days=1)
+        
+        duration = wake_time - sleep_start
+        hours = int(duration.total_seconds() // 3600)
+        minutes = int((duration.total_seconds() % 3600) // 60)
+        
+        # Обновляем сообщение с результатом
+        await callback.message.edit_text(
+            f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
+            f"⏱ Длительность: {hours} часов {minutes} минут"
+        )
+        
+        # Подтверждаем обработку callback
+        await callback.answer()
+        
+        logger.info(f"✅ Сон обработан: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в обработчике пробуждения: {e}")
+        await callback.answer("❌ Произошла ошибка при обработке пробуждения", show_alert=True)
 
 @dp.message(F.text == "🤮 Срыгивание")
 async def log_spitup(message: types.Message):

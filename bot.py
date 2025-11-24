@@ -25,9 +25,6 @@ dp = Dispatcher()
 # Московский часовой пояс
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
-# Временное хранилище для данных сна (в памяти)
-sleep_data = {}
-
 # Создание клавиатуры
 def get_keyboard():
     return ReplyKeyboardMarkup(
@@ -99,33 +96,23 @@ async def log_poop(message: types.Message):
 @dp.message(F.text == "😴 Сон")
 async def log_sleep(message: types.Message):
     try:
-        chat_id = message.chat.id
         current_time = datetime.now(MOSCOW_TZ)
+        timestamp = int(current_time.timestamp())
         
-        # Сохраняем время начала сна
-        sleep_data[chat_id] = {
-            'sleep_start': current_time,
-            'sleep_start_timestamp': int(current_time.timestamp())
-        }
-        
-        # Создаем inline-кнопку
+        # Создаем inline-кнопку с временем начала сна в callback_data
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="👶 Проснулся", callback_data="wakeup")]
+                [InlineKeyboardButton(text="👶 Проснулся", callback_data=f"wakeup:{timestamp}")]
             ]
         )
         
-        # Отправляем сообщение с кнопкой
-        sent_message = await message.answer(
+        await message.answer(
             f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
             "Нажмите кнопку ниже, когда ребёнок проснётся.",
             reply_markup=keyboard
         )
         
-        # Сохраняем ID сообщения для возможного использования
-        sleep_data[chat_id]['message_id'] = sent_message.message_id
-        
-        logger.info(f"✅ Сообщение с inline-кнопкой отправлено. Chat ID: {chat_id}, Message ID: {sent_message.message_id}")
+        logger.info(f"✅ Сообщение с inline-кнопкой отправлено. Время начала сна: {current_time.strftime('%H:%M')}")
         
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
         
@@ -134,20 +121,14 @@ async def log_sleep(message: types.Message):
         await message.answer("❌ Произошла ошибка при записи сна")
 
 # Обработчик нажатия на inline-кнопку
-@dp.callback_query(F.data == "wakeup")
+@dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
     try:
-        logger.info(f"📨 Получен callback от пользователя {callback.from_user.id}")
+        logger.info(f"📨 Получен callback: {callback.data}")
         
-        chat_id = callback.message.chat.id
-        user_id = callback.from_user.id
-        
-        # Проверяем, есть ли данные о сне
-        if chat_id not in sleep_data:
-            await callback.answer("❌ Сон не был начат или данные утеряны", show_alert=True)
-            return
-        
-        sleep_start = sleep_data[chat_id]['sleep_start']
+        # Извлекаем timestamp из callback_data
+        timestamp_str = callback.data.split(":")[1]
+        sleep_start = datetime.fromtimestamp(int(timestamp_str), MOSCOW_TZ)
         wake_time = datetime.now(MOSCOW_TZ)
         
         # Рассчитываем длительность сна
@@ -155,26 +136,20 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
         hours = int(duration.total_seconds() // 3600)
         minutes = int((duration.total_seconds() % 3600) // 60)
         
-        # Формируем текст результата
+        # Формируем текст результата в формате "с (время) до (время)"
         result_text = (
-            f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
+            f"💤 Сон: с {sleep_start.strftime('%H:%M')} до {wake_time.strftime('%H:%M')}\n"
             f"⏱ Длительность: {hours} часов {minutes} минут"
         )
         
         # Пытаемся отредактировать сообщение
         try:
-            await callback.message.edit_text(
-                result_text
-            )
+            await callback.message.edit_text(result_text)
             logger.info("✅ Сообщение успешно отредактировано")
         except Exception as e:
             logger.warning(f"⚠️ Не удалось отредактировать сообщение: {e}")
             # Если не удалось отредактировать, отправляем новое сообщение
             await callback.message.answer(result_text)
-        
-        # Удаляем данные о сне
-        if chat_id in sleep_data:
-            del sleep_data[chat_id]
         
         # Подтверждаем обработку callback
         await callback.answer()

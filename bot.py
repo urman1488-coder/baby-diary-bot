@@ -1,15 +1,15 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiohttp import web
 import os
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Токен бота и настройки вебхука
@@ -18,12 +18,15 @@ WEBHOOK_HOST = 'https://baby-diary-bot-1.onrender.com'
 WEBHOOK_PATH = f'/webhook/{BOT_TOKEN}'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Инициализация бота
+# Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # Московский часовой пояс
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
+
+# Временное хранилище для данных сна (в памяти)
+sleep_data = {}
 
 # Создание клавиатуры
 def get_keyboard():
@@ -34,11 +37,10 @@ def get_keyboard():
                 KeyboardButton(text="💩 Покакал")
             ],
             [
-                KeyboardButton(text="😴 Уснул"),
-                KeyboardButton(text="👶 Проснулся")
+                KeyboardButton(text="😴 Сон"),
+                KeyboardButton(text="🤮 Срыгивание")
             ],
             [
-                KeyboardButton(text="🤮 Срыгивание"),
                 KeyboardButton(text="💊 Витамин D")
             ]
         ],
@@ -51,7 +53,6 @@ def get_moscow_time():
 
 # Функция для получения времени следующего кормления (+3 часа)
 def get_next_feeding_time():
-    from datetime import timedelta
     next_time = datetime.now(MOSCOW_TZ) + timedelta(hours=3)
     return next_time.strftime("%H:%M")
 
@@ -94,17 +95,94 @@ async def log_poop(message: types.Message):
     await message.answer(f"💩 Покакал в {time}")
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
-@dp.message(F.text == "😴 Уснул")
+# Обработчик сна с inline-кнопкой
+@dp.message(F.text == "😴 Сон")
 async def log_sleep(message: types.Message):
-    time = get_moscow_time()
-    await message.answer(f"😴 Уснул в {time}")
-    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+    try:
+        chat_id = message.chat.id
+        current_time = datetime.now(MOSCOW_TZ)
+        
+        # Сохраняем время начала сна
+        sleep_data[chat_id] = {
+            'sleep_start': current_time,
+            'sleep_start_timestamp': int(current_time.timestamp())
+        }
+        
+        # Создаем inline-кнопку
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="👶 Проснулся", callback_data="wakeup")]
+            ]
+        )
+        
+        # Отправляем сообщение с кнопкой
+        sent_message = await message.answer(
+            f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
+            "Нажмите кнопку ниже, когда ребёнок проснётся.",
+            reply_markup=keyboard
+        )
+        
+        # Сохраняем ID сообщения для возможного использования
+        sleep_data[chat_id]['message_id'] = sent_message.message_id
+        
+        logger.info(f"✅ Сообщение с inline-кнопкой отправлено. Chat ID: {chat_id}, Message ID: {sent_message.message_id}")
+        
+        asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обработке сна: {e}")
+        await message.answer("❌ Произошла ошибка при записи сна")
 
-@dp.message(F.text == "👶 Проснулся")
-async def log_wakeup(message: types.Message):
-    time = get_moscow_time()
-    await message.answer(f"👶 Проснулся в {time}")
-    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+# Обработчик нажатия на inline-кнопку
+@dp.callback_query(F.data == "wakeup")
+async def handle_wakeup_callback(callback: types.CallbackQuery):
+    try:
+        logger.info(f"📨 Получен callback от пользователя {callback.from_user.id}")
+        
+        chat_id = callback.message.chat.id
+        user_id = callback.from_user.id
+        
+        # Проверяем, есть ли данные о сне
+        if chat_id not in sleep_data:
+            await callback.answer("❌ Сон не был начат или данные утеряны", show_alert=True)
+            return
+        
+        sleep_start = sleep_data[chat_id]['sleep_start']
+        wake_time = datetime.now(MOSCOW_TZ)
+        
+        # Рассчитываем длительность сна
+        duration = wake_time - sleep_start
+        hours = int(duration.total_seconds() // 3600)
+        minutes = int((duration.total_seconds() % 3600) // 60)
+        
+        # Формируем текст результата
+        result_text = (
+            f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
+            f"⏱ Длительность: {hours} часов {minutes} минут"
+        )
+        
+        # Пытаемся отредактировать сообщение
+        try:
+            await callback.message.edit_text(
+                result_text
+            )
+            logger.info("✅ Сообщение успешно отредактировано")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось отредактировать сообщение: {e}")
+            # Если не удалось отредактировать, отправляем новое сообщение
+            await callback.message.answer(result_text)
+        
+        # Удаляем данные о сне
+        if chat_id in sleep_data:
+            del sleep_data[chat_id]
+        
+        # Подтверждаем обработку callback
+        await callback.answer()
+        logger.info("✅ Callback успешно обработан")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в обработчике пробуждения: {e}")
+        await callback.answer("❌ Произошла ошибка при обработке пробуждения", show_alert=True)
 
 @dp.message(F.text == "🤮 Срыгивание")
 async def log_spitup(message: types.Message):
@@ -120,19 +198,33 @@ async def log_vitamin_d(message: types.Message):
 
 # Настройка вебхуков
 async def on_startup(app):
-    await bot.set_webhook(WEBHOOK_URL)
+    # Указываем allowed_updates для получения callback_query
+    await bot.set_webhook(
+        WEBHOOK_URL,
+        allowed_updates=["message", "callback_query"]
+    )
     logger.info(f"✅ Вебхук установлен: {WEBHOOK_URL}")
+    logger.info("✅ Разрешены обновления: message, callback_query")
 
 async def handle_webhook(request):
     try:
         token = request.match_info.get('token')
         if token != BOT_TOKEN:
+            logger.warning(f"❌ Неверный токен: {token}")
             return web.Response(status=403)
         
         update_data = await request.json()
         update = types.Update(**update_data)
+        
+        # Логируем тип обновления
+        if update.callback_query:
+            logger.info(f"📨 Вебхук: получен callback_query с данными: {update.callback_query.data}")
+        elif update.message:
+            logger.info(f"📨 Вебхук: получено сообщение: {update.message.text}")
+        
         await dp.feed_webhook_update(bot, update)
         return web.Response(status=200)
+        
     except Exception as e:
         logger.error(f"❌ Ошибка обработки вебхука: {e}")
         return web.Response(status=500)
@@ -151,4 +243,5 @@ app.router.add_get('/', health_check)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
+    logger.info(f"🚀 Запуск бота на порту {port}")
     web.run_app(app, host='0.0.0.0', port=port)

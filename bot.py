@@ -110,49 +110,64 @@ async def log_sleep(message: types.Message):
             ]
         )
         
-        await message.answer(
+        sent_message = await message.answer(
             f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
             "Нажмите кнопку ниже, когда ребёнок проснётся.",
             reply_markup=keyboard
         )
+        
+        # Сохраняем ID сообщения для возможного обновления
+        logger.info(f"✅ Сообщение с inline-кнопкой отправлено. ID: {sent_message.message_id}")
+        
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
     except Exception as e:
         logger.error(f"❌ Ошибка при обработке сна: {e}")
         await message.answer("❌ Произошла ошибка при записи сна")
 
-# Обработчик нажатия на inline-кнопку (с улучшенной обработкой ошибок)
-@dp.callback_query(F.data.startswith("wakeup:"))
-async def handle_wakeup_callback(callback: types.CallbackQuery):
+# Обработчик нажатия на inline-кнопку (упрощенная версия)
+@dp.callback_query()
+async def handle_all_callbacks(callback: types.CallbackQuery):
     try:
-        # Извлекаем время начала сна из callback_data
-        timestamp_str = callback.data.split(":")[1]
-        sleep_start = datetime.fromtimestamp(int(timestamp_str), MOSCOW_TZ)
-        wake_time = datetime.now(MOSCOW_TZ)
+        logger.info(f"📨 Получен callback: {callback.data}")
         
-        # Корректируем дату, если сон перешел через полночь
-        if wake_time < sleep_start:
-            # Предполагаем, что сон начался вчера
-            sleep_start = sleep_start.replace(year=wake_time.year, month=wake_time.month, day=wake_time.day)
-            sleep_start -= timedelta(days=1)
-        
-        duration = wake_time - sleep_start
-        hours = int(duration.total_seconds() // 3600)
-        minutes = int((duration.total_seconds() % 3600) // 60)
-        
-        # Обновляем сообщение с результатом
-        await callback.message.edit_text(
-            f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
-            f"⏱ Длительность: {hours} часов {minutes} минут"
-        )
-        
-        # Подтверждаем обработку callback
-        await callback.answer()
-        
-        logger.info(f"✅ Сон обработан: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}")
-        
+        if callback.data.startswith("wakeup:"):
+            # Извлекаем время начала сна из callback_data
+            timestamp_str = callback.data.split(":")[1]
+            sleep_start = datetime.fromtimestamp(int(timestamp_str), MOSCOW_TZ)
+            wake_time = datetime.now(MOSCOW_TZ)
+            
+            # Корректируем дату, если сон перешел через полночь
+            if wake_time < sleep_start:
+                wake_time = wake_time + timedelta(days=1)
+            
+            duration = wake_time - sleep_start
+            hours = int(duration.total_seconds() // 3600)
+            minutes = int((duration.total_seconds() % 3600) // 60)
+            
+            # Обновляем сообщение с результатом
+            try:
+                await callback.message.edit_text(
+                    f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
+                    f"⏱ Длительность: {hours} часов {minutes} минут"
+                )
+                logger.info("✅ Сообщение успешно обновлено")
+            except Exception as e:
+                logger.error(f"❌ Ошибка при обновлении сообщения: {e}")
+                # Если не удалось обновить, отправляем новое сообщение
+                await callback.message.answer(
+                    f"💤 Сон: {sleep_start.strftime('%H:%M')} - {wake_time.strftime('%H:%M')}\n"
+                    f"⏱ Длительность: {hours} часов {minutes} минут"
+                )
+            
+            # Всегда отвечаем на callback
+            await callback.answer("✅ Пробуждение зафиксировано!")
+            
+        else:
+            await callback.answer("❌ Неизвестная команда")
+            
     except Exception as e:
-        logger.error(f"❌ Ошибка в обработчике пробуждения: {e}")
-        await callback.answer("❌ Произошла ошибка при обработке пробуждения", show_alert=True)
+        logger.error(f"❌ Ошибка в обработчике callback: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 @dp.message(F.text == "🤮 Срыгивание")
 async def log_spitup(message: types.Message):
@@ -179,6 +194,13 @@ async def handle_webhook(request):
         
         update_data = await request.json()
         update = types.Update(**update_data)
+        
+        # Логируем тип обновления для диагностики
+        if update.callback_query:
+            logger.info(f"📨 Обработка callback запроса: {update.callback_query.data}")
+        elif update.message:
+            logger.info(f"📨 Обработка сообщения: {update.message.text}")
+        
         await dp.feed_webhook_update(bot, update)
         return web.Response(status=200)
     except Exception as e:

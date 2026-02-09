@@ -38,7 +38,7 @@ def get_keyboard():
             ],
             [
                 KeyboardButton(text="😴 Сон"),
-                KeyboardButton(text="🤮 Срыгивание")
+                KeyboardButton(text="🥣 Прикорм")
             ],
             [
                 KeyboardButton(text="💊 Витамин D")
@@ -123,7 +123,89 @@ async def log_sleep(message: types.Message):
         logger.error(f"❌ Ошибка при обработке сна: {e}")
         await message.answer("❌ Произошла ошибка при записи сна")
 
-# Обработчик нажатия на inline-кнопку с защитой от дублирования
+# Обработчик прикорма с inline-кнопками выбора каши
+@dp.message(F.text == "🥣 Прикорм")
+async def log_porridge(message: types.Message):
+    try:
+        # Создаем inline-кнопки для выбора типа каши
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:buckwheat"),
+                    InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:rice")
+                ],
+                [
+                    InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:corn")
+                ]
+            ]
+        )
+        
+        await message.answer(
+            "🥣 Выберите тип каши:",
+            reply_markup=keyboard
+        )
+        
+        logger.info("✅ Сообщение с выбором каши отправлено")
+        
+        asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при выборе прикорма: {e}")
+        await message.answer("❌ Произошла ошибка при выборе прикорма")
+
+# Обработчик нажатия на inline-кнопку выбора каши
+@dp.callback_query(F.data.startswith("porridge:"))
+async def handle_porridge_callback(callback: types.CallbackQuery):
+    try:
+        # Создаем уникальный идентификатор для этого callback
+        callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
+        
+        # Проверяем, не обрабатывали ли мы уже этот callback
+        if callback_id in processed_callbacks:
+            logger.info(f"🔄 Пропускаем дублирующий callback: {callback_id}")
+            await callback.answer()
+            return
+            
+        # Добавляем callback в список обработанных
+        processed_callbacks.add(callback_id)
+        logger.info(f"📨 Обрабатываем callback выбора каши: {callback_id}")
+        
+        # Получаем текущее время
+        current_time = get_moscow_time()
+        
+        # Определяем тип каши по callback_data
+        porridge_type = callback.data.split(":")[1]
+        
+        if porridge_type == "buckwheat":
+            porridge_name = "Гречневая каша"
+        elif porridge_type == "rice":
+            porridge_name = "Рисовая каша"
+        elif porridge_type == "corn":
+            porridge_name = "Кукурузная каша"
+        else:
+            porridge_name = "Каша"
+        
+        # Формируем текст результата
+        result_text = f"📝 Прикорм: {porridge_name}\n⏰ {current_time}"
+        
+        # Пытаемся отредактировать сообщение
+        try:
+            await callback.message.edit_text(result_text)
+            logger.info(f"✅ Сообщение о прикорме отредактировано: {porridge_name}")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось отредактировать сообщение: {e}")
+            # Если не удалось отредактировать, отправляем новое сообщение
+            await callback.message.answer(result_text)
+        
+        # Подтверждаем обработку callback
+        await callback.answer()
+        logger.info("✅ Callback выбора каши успешно обработан")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в обработчике выбора каши: {e}")
+        await callback.answer("❌ Произошла ошибка при записи прикорма", show_alert=True)
+
+# Обработчик нажатия на inline-кнопку сна с защитой от дублирования
 @dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
     try:
@@ -172,12 +254,6 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"❌ Ошибка в обработчике пробуждения: {e}")
         await callback.answer("❌ Произошла ошибка при обработке пробуждения", show_alert=True)
-
-@dp.message(F.text == "🤮 Срыгивание")
-async def log_spitup(message: types.Message):
-    time = get_moscow_time()
-    await message.answer(f"🤮 Срыгивание в {time}")
-    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 @dp.message(F.text == "💊 Витамин D")
 async def log_vitamin_d(message: types.Message):

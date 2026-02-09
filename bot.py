@@ -28,20 +28,20 @@ MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 # Словарь для отслеживания обработанных callback'ов (защита от дублирования)
 processed_callbacks = set()
 
-# Создание клавиатуры
+# Создание клавиатуры с новым расположением
 def get_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(text="🍼 Кормление"),
-                KeyboardButton(text="💩 Покакал")
-            ],
-            [
-                KeyboardButton(text="😴 Сон"),
                 KeyboardButton(text="🥣 Прикорм")
             ],
             [
-                KeyboardButton(text="💊 Витамин D")
+                KeyboardButton(text="😴 Сон"),
+                KeyboardButton(text="💩 Покакал")
+            ],
+            [
+                KeyboardButton(text="💊 Лекарства/Витамины")
             ]
         ],
         resize_keyboard=True
@@ -153,6 +153,32 @@ async def log_porridge(message: types.Message):
         logger.error(f"❌ Ошибка при выборе прикорма: {e}")
         await message.answer("❌ Произошла ошибка при выборе прикорма")
 
+# Обработчик лекарств с inline-кнопками выбора лекарства
+@dp.message(F.text == "💊 Лекарства/Витамины")
+async def log_medicine(message: types.Message):
+    try:
+        # Создаем inline-кнопки для выбора лекарства
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="💊 Витамин D", callback_data="medicine:vitamin_d")],
+                [InlineKeyboardButton(text="🕯️ Свеча при температуре", callback_data="medicine:candle")],
+                [InlineKeyboardButton(text="🧲 Железо", callback_data="medicine:iron")]
+            ]
+        )
+        
+        await message.answer(
+            "💊 Выберите лекарство:",
+            reply_markup=keyboard
+        )
+        
+        logger.info("✅ Сообщение с выбором лекарства отправлено")
+        
+        asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при выборе лекарства: {e}")
+        await message.answer("❌ Произошла ошибка при выборе лекарства")
+
 # Обработчик нажатия на inline-кнопку выбора каши
 @dp.callback_query(F.data.startswith("porridge:"))
 async def handle_porridge_callback(callback: types.CallbackQuery):
@@ -185,8 +211,8 @@ async def handle_porridge_callback(callback: types.CallbackQuery):
         else:
             porridge_name = "Каша"
         
-        # Формируем текст результата
-        result_text = f"📝 Прикорм: {porridge_name}\n⏰ {current_time}"
+        # Формируем текст результата (в формате "🥣 Каша в 14:30")
+        result_text = f"🥣 {porridge_name} в {current_time}"
         
         # Пытаемся отредактировать сообщение
         try:
@@ -204,6 +230,58 @@ async def handle_porridge_callback(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"❌ Ошибка в обработчике выбора каши: {e}")
         await callback.answer("❌ Произошла ошибка при записи прикорма", show_alert=True)
+
+# Обработчик нажатия на inline-кнопку выбора лекарства
+@dp.callback_query(F.data.startswith("medicine:"))
+async def handle_medicine_callback(callback: types.CallbackQuery):
+    try:
+        # Создаем уникальный идентификатор для этого callback
+        callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
+        
+        # Проверяем, не обрабатывали ли мы уже этот callback
+        if callback_id in processed_callbacks:
+            logger.info(f"🔄 Пропускаем дублирующий callback: {callback_id}")
+            await callback.answer()
+            return
+            
+        # Добавляем callback в список обработанных
+        processed_callbacks.add(callback_id)
+        logger.info(f"📨 Обрабатываем callback выбора лекарства: {callback_id}")
+        
+        # Получаем текущее время
+        current_time = get_moscow_time()
+        
+        # Определяем тип лекарства по callback_data
+        medicine_type = callback.data.split(":")[1]
+        
+        if medicine_type == "vitamin_d":
+            medicine_name = "💊 Витамин D"
+        elif medicine_type == "candle":
+            medicine_name = "🕯️ Свеча при температуре"
+        elif medicine_type == "iron":
+            medicine_name = "🧲 Железо"
+        else:
+            medicine_name = "💊 Лекарство"
+        
+        # Формируем текст результата (в формате "💊 Лекарство в 14:30")
+        result_text = f"{medicine_name} в {current_time}"
+        
+        # Пытаемся отредактировать сообщение
+        try:
+            await callback.message.edit_text(result_text)
+            logger.info(f"✅ Сообщение о лекарстве отредактировано: {medicine_name}")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось отредактировать сообщение: {e}")
+            # Если не удалось отредактировать, отправляем новое сообщение
+            await callback.message.answer(result_text)
+        
+        # Подтверждаем обработку callback
+        await callback.answer()
+        logger.info("✅ Callback выбора лекарства успешно обработан")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в обработчике выбора лекарства: {e}")
+        await callback.answer("❌ Произошла ошибка при записи лекарства", show_alert=True)
 
 # Обработчик нажатия на inline-кнопку сна с защитой от дублирования
 @dp.callback_query(F.data.startswith("wakeup:"))
@@ -254,12 +332,6 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"❌ Ошибка в обработчике пробуждения: {e}")
         await callback.answer("❌ Произошла ошибка при обработке пробуждения", show_alert=True)
-
-@dp.message(F.text == "💊 Витамин D")
-async def log_vitamin_d(message: types.Message):
-    time = get_moscow_time()
-    await message.answer(f"💊 Витамин D в {time}")
-    asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
 # Настройка вебхуков
 async def on_startup(app):

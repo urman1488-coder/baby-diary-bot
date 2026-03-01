@@ -93,8 +93,8 @@ async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int
         text_match = msg["text"] == new_text
         type_match = msg.get("action_type") == action_type if action_type else False
         
-        # Для дубля нужно совпадение И текста И типа действия в течение 120 секунд
-        if time_diff < 120 and text_match and type_match:
+        # Для дубля нужно совпадение И текста И типа действия в течение 60 секунд
+        if time_diff < 60 and text_match and type_match:
             logger.info(f"  🚨 НАЙДЕН ДУБЛЬ! Разница {time_diff} сек, тип: {action_type}")
             asyncio.create_task(delayed_delete(chat_id, new_message_id, delay=10))
             return True
@@ -316,7 +316,7 @@ async def handle_porridge_select(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора масла - ИСПРАВЛЕНО (только редактирование)
+# Обработчик выбора масла
 @dp.callback_query(F.data.startswith("porridge:oil:"))
 async def handle_oil_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -359,7 +359,7 @@ async def handle_oil_select(callback: types.CallbackQuery):
         if callback.from_user.id in user_selected_porridge:
             del user_selected_porridge[callback.from_user.id]
         
-        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
+        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -367,7 +367,7 @@ async def handle_oil_select(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора овощей - ИСПРАВЛЕНО (только редактирование)
+# Обработчик выбора овощей
 @dp.callback_query(F.data.startswith("porridge:vegetable:"))
 async def handle_vegetable_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -390,7 +390,7 @@ async def handle_vegetable_select(callback: types.CallbackQuery):
         
         result_text = f"{vegetable_name} в {current_time}"
         
-        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
+        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -398,7 +398,7 @@ async def handle_vegetable_select(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора фруктов - ИСПРАВЛЕНО (только редактирование)
+# Обработчик выбора фруктов
 @dp.callback_query(F.data.startswith("porridge:fruit:"))
 async def handle_fruit_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -420,7 +420,7 @@ async def handle_fruit_select(callback: types.CallbackQuery):
         
         result_text = f"{fruit_name} в {current_time}"
         
-        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
+        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -491,7 +491,7 @@ async def log_medicine(message: types.Message):
     except Exception as e:
         logger.error(f"❌ Ошибка при выборе лекарства: {e}")
 
-# Обработчики callback'ов для лекарств - ИСПРАВЛЕНО (только редактирование)
+# Обработчики callback'ов для лекарств
 @dp.callback_query(F.data.startswith("medicine:"))
 async def handle_medicine_callback(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -513,7 +513,7 @@ async def handle_medicine_callback(callback: types.CallbackQuery):
         
         result_text = f"{medicine_name} в {current_time}"
         
-        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
+        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -521,7 +521,7 @@ async def handle_medicine_callback(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик callback'ов для сна - ИСПРАВЛЕНО (только редактирование)
+# Обработчик callback'ов для сна
 @dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -544,7 +544,7 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
             f"⏱ Длительность: {hours} часов {minutes} минут"
         )
         
-        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
+        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         

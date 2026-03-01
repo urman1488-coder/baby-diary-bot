@@ -33,11 +33,24 @@ processed_updates = deque(maxlen=200)
 processed_callbacks = set()
 
 # Словарь для отслеживания последних отправленных сообщений бота
-# Теперь храним и тип действия для умного удаления дублей
 recent_messages = defaultdict(lambda: deque(maxlen=10))
 
-# Временное хранилище для выбранной каши (чтобы знать, к какой каше добавлять масло)
+# Временное хранилище для выбранной каши
 user_selected_porridge = {}
+
+# Константы типов действий (чтобы избежать опечаток)
+class ActionType:
+    WELCOME = "welcome"
+    FEEDING = "feeding"
+    POOP = "poop"
+    SLEEP_START = "sleep_start"
+    SLEEP_END = "sleep_end"
+    PORRIDGE_CATEGORY = "porridge_category"
+    PORRIDGE = "porridge"
+    VEGETABLE = "vegetable"
+    FRUIT = "fruit"
+    MEDICINE_MENU = "medicine_menu"
+    MEDICINE = "medicine"
 
 # Создание клавиатуры
 def get_keyboard():
@@ -69,7 +82,6 @@ def get_next_feeding_time():
 
 # Функция отложенного удаления дублирующего сообщения
 async def delayed_delete(chat_id: int, message_id: int, delay: int = 10):
-    """Удаляет сообщение через указанное количество секунд"""
     try:
         await asyncio.sleep(delay)
         await bot.delete_message(chat_id, message_id)
@@ -77,12 +89,16 @@ async def delayed_delete(chat_id: int, message_id: int, delay: int = 10):
     except Exception as e:
         logger.warning(f"⚠️ Не удалось удалить дубль (ID: {message_id}): {e}")
 
-# Функция для удаления дублирующих сообщений бота с учетом типа действия
-async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int, action_type: str = None):
+# Функция для удаления дублирующих сообщений бота
+async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int, action_type: str):
     """
     Проверяет и инициирует удаление дублирующих сообщений бота в чате
-    action_type - тип действия ('feeding', 'poop', 'sleep', 'porridge', 'vegetable', 'fruit', 'medicine')
+    action_type - тип действия (обязательный параметр!)
     """
+    if not action_type:
+        logger.error(f"❌ action_type не может быть None!")
+        return False
+        
     current_time = datetime.now(MOSCOW_TZ)
     chat_messages = recent_messages[chat_id]
     
@@ -91,7 +107,7 @@ async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int
     for msg in chat_messages:
         time_diff = (current_time - msg["time"]).seconds
         text_match = msg["text"] == new_text
-        type_match = msg.get("action_type") == action_type if action_type else False
+        type_match = msg.get("action_type") == action_type
         
         # Для дубля нужно совпадение И текста И типа действия в течение 60 секунд
         if time_diff < 60 and text_match and type_match:
@@ -99,7 +115,7 @@ async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int
             asyncio.create_task(delayed_delete(chat_id, new_message_id, delay=10))
             return True
     
-    # Если дублей не найдено, сохраняем это сообщение с типом действия
+    # Если дублей не найдено, сохраняем это сообщение
     logger.info(f"✅ Новое сообщение сохранено, тип: {action_type}")
     chat_messages.append({
         "text": new_text,
@@ -111,8 +127,12 @@ async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int
     return False
 
 # Функция отправки сообщения с автодудалением дублей
-async def send_message_with_dedup(chat_id: int, text: str, reply_markup=None, action_type: str = None):
-    """Отправляет сообщение и проверяет на дубли с учетом типа действия"""
+async def send_message_with_dedup(chat_id: int, text: str, action_type: str, reply_markup=None):
+    """Отправляет сообщение и проверяет на дубли - action_type обязателен!"""
+    if not action_type:
+        logger.error(f"❌ action_type не может быть None!")
+        action_type = "unknown"
+        
     sent_message = await bot.send_message(chat_id, text, reply_markup=reply_markup)
     is_duplicate = await delete_bot_duplicates(chat_id, text, sent_message.message_id, action_type)
     if is_duplicate:
@@ -126,13 +146,10 @@ async def delete_user_message_with_retry(chat_id: int, message_id: int, max_atte
         try:
             await asyncio.sleep(5)
             await bot.delete_message(chat_id, message_id)
-            logger.info(f"✅ Сообщение пользователя удалено")
             return True
-        except Exception as e:
-            logger.warning(f"⚠️ Попытка {attempt}: {e}")
+        except:
             if attempt < max_attempts:
                 await asyncio.sleep(2)
-    logger.error(f"❌ Не удалось удалить сообщение пользователя")
     return False
 
 # Обработчики команд
@@ -141,8 +158,8 @@ async def send_welcome(message: types.Message):
     await send_message_with_dedup(
         message.chat.id, 
         "👶 Дневник ребёнка\n\nВыберите действие на клавиатуре:",
-        reply_markup=get_keyboard(),
-        action_type="welcome"
+        ActionType.WELCOME,
+        reply_markup=get_keyboard()
     )
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
@@ -153,7 +170,7 @@ async def log_feeding(message: types.Message):
     await send_message_with_dedup(
         message.chat.id,
         f"🍼 Кормление в {time}\n🕒 Следующее кормление в {next_time}",
-        action_type="feeding"
+        ActionType.FEEDING
     )
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
@@ -163,7 +180,7 @@ async def log_poop(message: types.Message):
     await send_message_with_dedup(
         message.chat.id, 
         f"💩 Покакал в {time}",
-        action_type="poop"
+        ActionType.POOP
     )
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
@@ -181,19 +198,17 @@ async def log_sleep(message: types.Message):
             message.chat.id,
             f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
             "Нажмите кнопку ниже, когда ребёнок проснётся.",
-            reply_markup=keyboard,
-            action_type="sleep_start"
+            ActionType.SLEEP_START,
+            reply_markup=keyboard
         )
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
     except Exception as e:
         logger.error(f"❌ Ошибка при обработке сна: {e}")
-        await send_message_with_dedup(message.chat.id, "❌ Произошла ошибка при записи сна")
 
-# ========== ОБРАБОТЧИК ПРИКОРМА (ВАРИАНТ 4) ==========
+# ========== ПРИКОРМ ==========
 
 @dp.message(F.text == "🥣 Прикорм")
 async def log_porridge_start(message: types.Message):
-    """Шаг 1: Выбор категории прикорма"""
     try:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -206,15 +221,14 @@ async def log_porridge_start(message: types.Message):
         await send_message_with_dedup(
             message.chat.id,
             "🥣 Выберите категорию прикорма:",
-            reply_markup=keyboard,
-            action_type="porridge_category"
+            ActionType.PORRIDGE_CATEGORY,
+            reply_markup=keyboard
         )
         
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при выборе категории: {e}")
-        await send_message_with_dedup(message.chat.id, "❌ Произошла ошибка")
+        logger.error(f"❌ Ошибка: {e}")
 
 # Обработчик выбора категории
 @dp.callback_query(F.data.startswith("porridge:category:"))
@@ -229,7 +243,6 @@ async def handle_porridge_category(callback: types.CallbackQuery):
         category = callback.data.split(":")[2]
         
         if category == "porridge":
-            # Кнопки для каш
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat")],
@@ -241,7 +254,6 @@ async def handle_porridge_category(callback: types.CallbackQuery):
             await callback.message.edit_text("🥣 Выберите кашу:", reply_markup=keyboard)
             
         elif category == "vegetables":
-            # Кнопки для овощей
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="🥦 Брокколи", callback_data="porridge:vegetable:broccoli")],
@@ -254,7 +266,6 @@ async def handle_porridge_category(callback: types.CallbackQuery):
             await callback.message.edit_text("🥦 Выберите овощное пюре:", reply_markup=keyboard)
             
         elif category == "fruits":
-            # Кнопки для фруктов
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="🍎 Яблоко", callback_data="porridge:fruit:apple")],
@@ -282,11 +293,8 @@ async def handle_porridge_select(callback: types.CallbackQuery):
     
     try:
         porridge_type = callback.data.split(":")[2]
-        
-        # Сохраняем выбранную кашу для пользователя
         user_selected_porridge[callback.from_user.id] = porridge_type
         
-        # Кнопки для выбора масла
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🫒 Оливковое", callback_data="porridge:oil:olive")],
@@ -297,7 +305,6 @@ async def handle_porridge_select(callback: types.CallbackQuery):
             ]
         )
         
-        # Определяем название каши
         porridge_names = {
             "buckwheat": "Гречневая каша",
             "rice": "Рисовая каша",
@@ -328,11 +335,8 @@ async def handle_oil_select(callback: types.CallbackQuery):
     try:
         oil_type = callback.data.split(":")[2]
         current_time = get_moscow_time()
-        
-        # Получаем выбранную ранее кашу
         porridge_type = user_selected_porridge.get(callback.from_user.id, "buckwheat")
         
-        # Названия каш
         porridge_names = {
             "buckwheat": "Гречневая каша",
             "rice": "Рисовая каша",
@@ -340,7 +344,6 @@ async def handle_oil_select(callback: types.CallbackQuery):
         }
         porridge_name = porridge_names.get(porridge_type, "Каша")
         
-        # Названия масел
         oil_names = {
             "olive": "🫒 оливковое масло",
             "sunflower": "🌻 подсолнечное масло",
@@ -349,17 +352,14 @@ async def handle_oil_select(callback: types.CallbackQuery):
         }
         oil_name = oil_names.get(oil_type, "")
         
-        # Формируем итоговое сообщение
         if oil_name:
             result_text = f"🥣 {porridge_name} + {oil_name}\n🕐 {current_time}"
         else:
             result_text = f"🥣 {porridge_name}\n🕐 {current_time}"
         
-        # Очищаем сохраненную кашу
         if callback.from_user.id in user_selected_porridge:
             del user_selected_porridge[callback.from_user.id]
         
-        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -390,7 +390,6 @@ async def handle_vegetable_select(callback: types.CallbackQuery):
         
         result_text = f"{vegetable_name} в {current_time}"
         
-        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -420,7 +419,6 @@ async def handle_fruit_select(callback: types.CallbackQuery):
         
         result_text = f"{fruit_name} в {current_time}"
         
-        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -441,7 +439,6 @@ async def handle_porridge_back(callback: types.CallbackQuery):
         back_to = callback.data.split(":")[2]
         
         if back_to == "start":
-            # Возврат к выбору категории
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="🥣 Каши", callback_data="porridge:category:porridge")],
@@ -452,7 +449,6 @@ async def handle_porridge_back(callback: types.CallbackQuery):
             await callback.message.edit_text("🥣 Выберите категорию прикорма:", reply_markup=keyboard)
             
         elif back_to == "porridge":
-            # Возврат к выбору каш
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat")],
@@ -469,7 +465,7 @@ async def handle_porridge_back(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# ========== КОНЕЦ ОБРАБОТЧИКА ПРИКОРМА ==========
+# ========== ЛЕКАРСТВА ==========
 
 @dp.message(F.text == "💊 Лекарства/Витамины")
 async def log_medicine(message: types.Message):
@@ -484,14 +480,13 @@ async def log_medicine(message: types.Message):
         await send_message_with_dedup(
             message.chat.id,
             "💊 Выберите лекарство:",
-            reply_markup=keyboard,
-            action_type="medicine_menu"
+            ActionType.MEDICINE_MENU,
+            reply_markup=keyboard
         )
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
     except Exception as e:
-        logger.error(f"❌ Ошибка при выборе лекарства: {e}")
+        logger.error(f"❌ Ошибка: {e}")
 
-# Обработчики callback'ов для лекарств
 @dp.callback_query(F.data.startswith("medicine:"))
 async def handle_medicine_callback(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -513,7 +508,6 @@ async def handle_medicine_callback(callback: types.CallbackQuery):
         
         result_text = f"{medicine_name} в {current_time}"
         
-        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -521,7 +515,8 @@ async def handle_medicine_callback(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик callback'ов для сна
+# ========== СОН ==========
+
 @dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -544,7 +539,6 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
             f"⏱ Длительность: {hours} часов {minutes} минут"
         )
         
-        # Только редактируем, не отправляем новое сообщение
         await callback.message.edit_text(result_text)
         await callback.answer()
         
@@ -552,7 +546,8 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Настройка вебхуков
+# ========== ВЕБХУК ==========
+
 async def on_startup(app):
     processed_callbacks.clear()
     processed_updates.clear()

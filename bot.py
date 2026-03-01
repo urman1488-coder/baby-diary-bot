@@ -26,7 +26,7 @@ dp = Dispatcher()
 # Московский часовой пояс
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
-# Хранилище обработанных update_id (защита от дублей на уровне вебхука)
+# Хранилище обработанных update_id
 processed_updates = deque(maxlen=200)
 
 # Словарь для отслеживания обработанных callback'ов
@@ -38,7 +38,7 @@ recent_messages = defaultdict(lambda: deque(maxlen=10))
 # Временное хранилище для выбранной каши
 user_selected_porridge = {}
 
-# Константы типов действий (чтобы избежать опечаток)
+# Константы типов действий
 class ActionType:
     WELCOME = "welcome"
     FEEDING = "feeding"
@@ -52,23 +52,48 @@ class ActionType:
     MEDICINE_MENU = "medicine_menu"
     MEDICINE = "medicine"
 
-# Создание клавиатуры
-def get_keyboard():
+# ========== ЦВЕТНАЯ КЛАВИАТУРА ==========
+def get_colored_keyboard():
+    """
+    Создает Reply-клавиатуру с цветными кнопками
+    - Первый ряд: 🟢 Зеленые (success) - Кормление, Прикорм
+    - Второй ряд: 🔵 Синие (primary) - Сон, Покакал
+    - Третий ряд: 🔴 Красная (danger) - Лекарства/Витамины
+    """
     return ReplyKeyboardMarkup(
         keyboard=[
+            # 1 ряд - 🟢 ЗЕЛЕНЫЕ
             [
-                KeyboardButton(text="🍼 Кормление"),
-                KeyboardButton(text="🥣 Прикорм")
+                KeyboardButton(
+                    text="🍼 Кормление",
+                    style="success"
+                ),
+                KeyboardButton(
+                    text="🥣 Прикорм",
+                    style="success"
+                )
             ],
+            # 2 ряд - 🔵 СИНИЕ
             [
-                KeyboardButton(text="😴 Сон"),
-                KeyboardButton(text="💩 Покакал")
+                KeyboardButton(
+                    text="😴 Сон",
+                    style="primary"
+                ),
+                KeyboardButton(
+                    text="💩 Покакал",
+                    style="primary"
+                )
             ],
+            # 3 ряд - 🔴 КРАСНАЯ
             [
-                KeyboardButton(text="💊 Лекарства/Витамины")
+                KeyboardButton(
+                    text="💊 Лекарства/Витамины",
+                    style="danger"
+                )
             ]
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
+        input_field_placeholder="Выберите действие..."
     )
 
 # Функция для получения текущего времени по МСК
@@ -91,54 +116,34 @@ async def delayed_delete(chat_id: int, message_id: int, delay: int = 10):
 
 # Функция для удаления дублирующих сообщений бота
 async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int, action_type: str):
-    """
-    Проверяет и инициирует удаление дублирующих сообщений бота в чате
-    action_type - тип действия (обязательный параметр!)
-    """
     if not action_type:
-        logger.error(f"❌ action_type не может быть None!")
         return False
         
     current_time = datetime.now(MOSCOW_TZ)
     chat_messages = recent_messages[chat_id]
-    
-    logger.info(f"🔍 Проверка сообщения на дубль в чате {chat_id}, тип: {action_type}")
     
     for msg in chat_messages:
         time_diff = (current_time - msg["time"]).seconds
         text_match = msg["text"] == new_text
         type_match = msg.get("action_type") == action_type
         
-        # Для дубля нужно совпадение И текста И типа действия в течение 60 секунд
         if time_diff < 60 and text_match and type_match:
-            logger.info(f"  🚨 НАЙДЕН ДУБЛЬ! Разница {time_diff} сек, тип: {action_type}")
             asyncio.create_task(delayed_delete(chat_id, new_message_id, delay=10))
             return True
     
-    # Если дублей не найдено, сохраняем это сообщение
-    logger.info(f"✅ Новое сообщение сохранено, тип: {action_type}")
     chat_messages.append({
         "text": new_text,
         "time": current_time,
         "message_id": new_message_id,
         "action_type": action_type
     })
-    
     return False
 
 # Функция отправки сообщения с автодудалением дублей
 async def send_message_with_dedup(chat_id: int, text: str, action_type: str, reply_markup=None):
-    """Отправляет сообщение и проверяет на дубли - action_type обязателен!"""
-    if not action_type:
-        logger.error(f"❌ action_type не может быть None!")
-        action_type = "unknown"
-        
     sent_message = await bot.send_message(chat_id, text, reply_markup=reply_markup)
     is_duplicate = await delete_bot_duplicates(chat_id, text, sent_message.message_id, action_type)
-    if is_duplicate:
-        logger.info(f"🔄 Сообщение определено как дубль, будет удалено через 10 сек")
-        return None
-    return sent_message
+    return None if is_duplicate else sent_message
 
 # Функция удаления сообщения пользователя
 async def delete_user_message_with_retry(chat_id: int, message_id: int, max_attempts: int = 3):
@@ -152,14 +157,15 @@ async def delete_user_message_with_retry(chat_id: int, message_id: int, max_atte
                 await asyncio.sleep(2)
     return False
 
-# Обработчики команд
+# ========== ОБРАБОТЧИКИ КОМАНД ==========
+
 @dp.message(Command("start", "help"))
 async def send_welcome(message: types.Message):
     await send_message_with_dedup(
-        message.chat.id, 
+        message.chat.id,
         "👶 Дневник ребёнка\n\nВыберите действие на клавиатуре:",
         ActionType.WELCOME,
-        reply_markup=get_keyboard()
+        reply_markup=get_colored_keyboard()
     )
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
@@ -178,7 +184,7 @@ async def log_feeding(message: types.Message):
 async def log_poop(message: types.Message):
     time = get_moscow_time()
     await send_message_with_dedup(
-        message.chat.id, 
+        message.chat.id,
         f"💩 Покакал в {time}",
         ActionType.POOP
     )
@@ -203,7 +209,7 @@ async def log_sleep(message: types.Message):
         )
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
     except Exception as e:
-        logger.error(f"❌ Ошибка при обработке сна: {e}")
+        logger.error(f"❌ Ошибка: {e}")
 
 # ========== ПРИКОРМ ==========
 
@@ -245,10 +251,16 @@ async def handle_porridge_category(callback: types.CallbackQuery):
         if category == "porridge":
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat")],
-                    [InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")],
-                    [InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")],
-                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
+                    [
+                        InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat"),
+                        InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")
+                    ],
+                    [
+                        InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")
+                    ],
+                    [
+                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
+                    ]
                 ]
             )
             await callback.message.edit_text("🥣 Выберите кашу:", reply_markup=keyboard)
@@ -256,11 +268,17 @@ async def handle_porridge_category(callback: types.CallbackQuery):
         elif category == "vegetables":
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="🥦 Брокколи", callback_data="porridge:vegetable:broccoli")],
-                    [InlineKeyboardButton(text="🥒 Кабачок", callback_data="porridge:vegetable:zucchini")],
-                    [InlineKeyboardButton(text="🎃 Тыква", callback_data="porridge:vegetable:pumpkin")],
-                    [InlineKeyboardButton(text="🥬 Цветная капуста", callback_data="porridge:vegetable:cauliflower")],
-                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
+                    [
+                        InlineKeyboardButton(text="🥦 Брокколи", callback_data="porridge:vegetable:broccoli"),
+                        InlineKeyboardButton(text="🥒 Кабачок", callback_data="porridge:vegetable:zucchini")
+                    ],
+                    [
+                        InlineKeyboardButton(text="🎃 Тыква", callback_data="porridge:vegetable:pumpkin"),
+                        InlineKeyboardButton(text="🥬 Цв. капуста", callback_data="porridge:vegetable:cauliflower")
+                    ],
+                    [
+                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
+                    ]
                 ]
             )
             await callback.message.edit_text("🥦 Выберите овощное пюре:", reply_markup=keyboard)
@@ -268,10 +286,16 @@ async def handle_porridge_category(callback: types.CallbackQuery):
         elif category == "fruits":
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="🍎 Яблоко", callback_data="porridge:fruit:apple")],
-                    [InlineKeyboardButton(text="🍐 Груша", callback_data="porridge:fruit:pear")],
-                    [InlineKeyboardButton(text="🍌 Банан", callback_data="porridge:fruit:banana")],
-                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
+                    [
+                        InlineKeyboardButton(text="🍎 Яблоко", callback_data="porridge:fruit:apple"),
+                        InlineKeyboardButton(text="🍐 Груша", callback_data="porridge:fruit:pear")
+                    ],
+                    [
+                        InlineKeyboardButton(text="🍌 Банан", callback_data="porridge:fruit:banana")
+                    ],
+                    [
+                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
+                    ]
                 ]
             )
             await callback.message.edit_text("🍎 Выберите фруктовое пюре:", reply_markup=keyboard)
@@ -297,11 +321,17 @@ async def handle_porridge_select(callback: types.CallbackQuery):
         
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🫒 Оливковое", callback_data="porridge:oil:olive")],
-                [InlineKeyboardButton(text="🌻 Подсолнечное", callback_data="porridge:oil:sunflower")],
-                [InlineKeyboardButton(text="🧈 Сливочное", callback_data="porridge:oil:butter")],
-                [InlineKeyboardButton(text="⏭️ Без масла", callback_data="porridge:oil:none")],
-                [InlineKeyboardButton(text="◀️ Назад к кашам", callback_data="porridge:back:porridge")]
+                [
+                    InlineKeyboardButton(text="🫒 Оливковое", callback_data="porridge:oil:olive"),
+                    InlineKeyboardButton(text="🌻 Подсолнечное", callback_data="porridge:oil:sunflower")
+                ],
+                [
+                    InlineKeyboardButton(text="🧈 Сливочное", callback_data="porridge:oil:butter"),
+                    InlineKeyboardButton(text="⏭️ Без масла", callback_data="porridge:oil:none")
+                ],
+                [
+                    InlineKeyboardButton(text="◀️ Назад к кашам", callback_data="porridge:back:porridge")
+                ]
             ]
         )
         
@@ -352,10 +382,11 @@ async def handle_oil_select(callback: types.CallbackQuery):
         }
         oil_name = oil_names.get(oil_type, "")
         
+        # ✅ ИСПРАВЛЕНО: теперь формат "в 14:30" как у покакал
         if oil_name:
-            result_text = f"🥣 {porridge_name} + {oil_name}\n🕐 {current_time}"
+            result_text = f"🥣 {porridge_name} + {oil_name} в {current_time}"
         else:
-            result_text = f"🥣 {porridge_name}\n🕐 {current_time}"
+            result_text = f"🥣 {porridge_name} в {current_time}"
         
         if callback.from_user.id in user_selected_porridge:
             del user_selected_porridge[callback.from_user.id]
@@ -451,10 +482,16 @@ async def handle_porridge_back(callback: types.CallbackQuery):
         elif back_to == "porridge":
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat")],
-                    [InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")],
-                    [InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")],
-                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
+                    [
+                        InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat"),
+                        InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")
+                    ],
+                    [
+                        InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")
+                    ],
+                    [
+                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
+                    ]
                 ]
             )
             await callback.message.edit_text("🥣 Выберите кашу:", reply_markup=keyboard)

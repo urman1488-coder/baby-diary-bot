@@ -189,7 +189,7 @@ async def log_sleep(message: types.Message):
         logger.error(f"❌ Ошибка при обработке сна: {e}")
         await send_message_with_dedup(message.chat.id, "❌ Произошла ошибка при записи сна")
 
-# ========== НОВЫЙ ОБРАБОТЧИК ПРИКОРМА (ВАРИАНТ 4) ==========
+# ========== ОБРАБОТЧИК ПРИКОРМА (ВАРИАНТ 4) ==========
 
 @dp.message(F.text == "🥣 Прикорм")
 async def log_porridge_start(message: types.Message):
@@ -316,7 +316,7 @@ async def handle_porridge_select(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора масла
+# Обработчик выбора масла - ИСПРАВЛЕНО (только редактирование)
 @dp.callback_query(F.data.startswith("porridge:oil:"))
 async def handle_oil_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -359,16 +359,15 @@ async def handle_oil_select(callback: types.CallbackQuery):
         if callback.from_user.id in user_selected_porridge:
             del user_selected_porridge[callback.from_user.id]
         
-        # Отправляем с типом porridge для правильной защиты от дублей
+        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
         await callback.message.edit_text(result_text)
-        await send_message_with_dedup(callback.message.chat.id, result_text, action_type="porridge")
         await callback.answer()
         
     except Exception as e:
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора овощей
+# Обработчик выбора овощей - ИСПРАВЛЕНО (только редактирование)
 @dp.callback_query(F.data.startswith("porridge:vegetable:"))
 async def handle_vegetable_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -391,15 +390,15 @@ async def handle_vegetable_select(callback: types.CallbackQuery):
         
         result_text = f"{vegetable_name} в {current_time}"
         
+        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
         await callback.message.edit_text(result_text)
-        await send_message_with_dedup(callback.message.chat.id, result_text, action_type="vegetable")
         await callback.answer()
         
     except Exception as e:
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора фруктов
+# Обработчик выбора фруктов - ИСПРАВЛЕНО (только редактирование)
 @dp.callback_query(F.data.startswith("porridge:fruit:"))
 async def handle_fruit_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -421,8 +420,8 @@ async def handle_fruit_select(callback: types.CallbackQuery):
         
         result_text = f"{fruit_name} в {current_time}"
         
+        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
         await callback.message.edit_text(result_text)
-        await send_message_with_dedup(callback.message.chat.id, result_text, action_type="fruit")
         await callback.answer()
         
     except Exception as e:
@@ -492,7 +491,7 @@ async def log_medicine(message: types.Message):
     except Exception as e:
         logger.error(f"❌ Ошибка при выборе лекарства: {e}")
 
-# Обработчики callback'ов для лекарств
+# Обработчики callback'ов для лекарств - ИСПРАВЛЕНО (только редактирование)
 @dp.callback_query(F.data.startswith("medicine:"))
 async def handle_medicine_callback(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -514,15 +513,15 @@ async def handle_medicine_callback(callback: types.CallbackQuery):
         
         result_text = f"{medicine_name} в {current_time}"
         
+        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
         await callback.message.edit_text(result_text)
-        await send_message_with_dedup(callback.message.chat.id, result_text, action_type="medicine")
         await callback.answer()
         
     except Exception as e:
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик callback'ов для сна
+# Обработчик callback'ов для сна - ИСПРАВЛЕНО (только редактирование)
 @dp.callback_query(F.data.startswith("wakeup:"))
 async def handle_wakeup_callback(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -545,8 +544,8 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
             f"⏱ Длительность: {hours} часов {minutes} минут"
         )
         
+        # ✅ ТОЛЬКО РЕДАКТИРУЕМ, НЕ ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ
         await callback.message.edit_text(result_text)
-        await send_message_with_dedup(callback.message.chat.id, result_text, action_type="sleep_end")
         await callback.answer()
         
     except Exception as e:
@@ -577,6 +576,7 @@ async def handle_webhook(request):
         update_data = await request.json()
         update_id = update_data.get("update_id")
         if update_id in processed_updates:
+            logger.info(f"🔄 Пропускаем дублирующий update_id: {update_id}")
             return web.Response(status=200)
         processed_updates.append(update_id)
         update = types.Update(**update_data)

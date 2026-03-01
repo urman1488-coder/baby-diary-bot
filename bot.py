@@ -140,8 +140,8 @@ async def delete_bot_duplicates(chat_id: int, new_text: str, new_message_id: int
     return False
 
 # Функция отправки сообщения с автодудалением дублей
-async def send_message_with_dedup(chat_id: int, text: str, action_type: str, reply_markup=None):
-    sent_message = await bot.send_message(chat_id, text, reply_markup=reply_markup)
+async def send_message_with_dedup(chat_id: int, text: str, action_type: str, reply_markup=None, parse_mode: str = None):
+    sent_message = await bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
     is_duplicate = await delete_bot_duplicates(chat_id, text, sent_message.message_id, action_type)
     return None if is_duplicate else sent_message
 
@@ -175,8 +175,9 @@ async def log_feeding(message: types.Message):
     next_time = get_next_feeding_time()
     await send_message_with_dedup(
         message.chat.id,
-        f"🍼 Кормление в {time}\n🕒 Следующее кормление в {next_time}",
-        ActionType.FEEDING
+        f"🍼 Кормление в <b>{time}</b>\n🕒 Следующее кормление в <b>{next_time}</b>",
+        ActionType.FEEDING,
+        parse_mode="HTML"
     )
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
@@ -185,8 +186,9 @@ async def log_poop(message: types.Message):
     time = get_moscow_time()
     await send_message_with_dedup(
         message.chat.id,
-        f"💩 Покакал в {time}",
-        ActionType.POOP
+        f"💩 Покакал в <b>{time}</b>",
+        ActionType.POOP,
+        parse_mode="HTML"
     )
     asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
 
@@ -195,17 +197,25 @@ async def log_sleep(message: types.Message):
     try:
         current_time = datetime.now(MOSCOW_TZ)
         timestamp = int(current_time.timestamp())
+        
+        # 🔵 СИНЯЯ КНОПКА ПРОСНУЛСЯ
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="👶 Проснулся", callback_data=f"wakeup:{timestamp}")]
+                [InlineKeyboardButton(
+                    text="👶 Проснулся",
+                    callback_data=f"wakeup:{timestamp}",
+                    style="primary"  # Синий цвет
+                )]
             ]
         )
+        
         await send_message_with_dedup(
             message.chat.id,
-            f"😴 Уснул в {current_time.strftime('%H:%M')}\n"
+            f"😴 Уснул в <b>{current_time.strftime('%H:%M')}</b>\n"
             "Нажмите кнопку ниже, когда ребёнок проснётся.",
             ActionType.SLEEP_START,
-            reply_markup=keyboard
+            reply_markup=keyboard,
+            parse_mode="HTML"
         )
         asyncio.create_task(delete_user_message_with_retry(message.chat.id, message.message_id))
     except Exception as e:
@@ -249,53 +259,38 @@ async def handle_porridge_category(callback: types.CallbackQuery):
         category = callback.data.split(":")[2]
         
         if category == "porridge":
+            # КАШИ - В ОДИН СТОЛБЕЦ
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat"),
-                        InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")
-                    ],
-                    [
-                        InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")
-                    ],
-                    [
-                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
-                    ]
+                    [InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat")],
+                    [InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")],
+                    [InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")],
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
                 ]
             )
             await callback.message.edit_text("🥣 Выберите кашу:", reply_markup=keyboard)
             
         elif category == "vegetables":
+            # ОВОЩИ - В ОДИН СТОЛБЕЦ
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="🥦 Брокколи", callback_data="porridge:vegetable:broccoli"),
-                        InlineKeyboardButton(text="🥒 Кабачок", callback_data="porridge:vegetable:zucchini")
-                    ],
-                    [
-                        InlineKeyboardButton(text="🎃 Тыква", callback_data="porridge:vegetable:pumpkin"),
-                        InlineKeyboardButton(text="🥬 Цв. капуста", callback_data="porridge:vegetable:cauliflower")
-                    ],
-                    [
-                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
-                    ]
+                    [InlineKeyboardButton(text="🥦 Брокколи", callback_data="porridge:vegetable:broccoli")],
+                    [InlineKeyboardButton(text="🥒 Кабачок", callback_data="porridge:vegetable:zucchini")],
+                    [InlineKeyboardButton(text="🎃 Тыква", callback_data="porridge:vegetable:pumpkin")],
+                    [InlineKeyboardButton(text="🥬 Цветная капуста", callback_data="porridge:vegetable:cauliflower")],
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
                 ]
             )
             await callback.message.edit_text("🥦 Выберите овощное пюре:", reply_markup=keyboard)
             
         elif category == "fruits":
+            # ФРУКТЫ - В ОДИН СТОЛБЕЦ
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="🍎 Яблоко", callback_data="porridge:fruit:apple"),
-                        InlineKeyboardButton(text="🍐 Груша", callback_data="porridge:fruit:pear")
-                    ],
-                    [
-                        InlineKeyboardButton(text="🍌 Банан", callback_data="porridge:fruit:banana")
-                    ],
-                    [
-                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
-                    ]
+                    [InlineKeyboardButton(text="🍎 Яблоко", callback_data="porridge:fruit:apple")],
+                    [InlineKeyboardButton(text="🍐 Груша", callback_data="porridge:fruit:pear")],
+                    [InlineKeyboardButton(text="🍌 Банан", callback_data="porridge:fruit:banana")],
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
                 ]
             )
             await callback.message.edit_text("🍎 Выберите фруктовое пюре:", reply_markup=keyboard)
@@ -319,19 +314,14 @@ async def handle_porridge_select(callback: types.CallbackQuery):
         porridge_type = callback.data.split(":")[2]
         user_selected_porridge[callback.from_user.id] = porridge_type
         
+        # МАСЛО - В ОДИН СТОЛБЕЦ
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="🫒 Оливковое", callback_data="porridge:oil:olive"),
-                    InlineKeyboardButton(text="🌻 Подсолнечное", callback_data="porridge:oil:sunflower")
-                ],
-                [
-                    InlineKeyboardButton(text="🧈 Сливочное", callback_data="porridge:oil:butter"),
-                    InlineKeyboardButton(text="⏭️ Без масла", callback_data="porridge:oil:none")
-                ],
-                [
-                    InlineKeyboardButton(text="◀️ Назад к кашам", callback_data="porridge:back:porridge")
-                ]
+                [InlineKeyboardButton(text="🫒 Оливковое", callback_data="porridge:oil:olive")],
+                [InlineKeyboardButton(text="🌻 Подсолнечное", callback_data="porridge:oil:sunflower")],
+                [InlineKeyboardButton(text="🧈 Сливочное", callback_data="porridge:oil:butter")],
+                [InlineKeyboardButton(text="⏭️ Без масла", callback_data="porridge:oil:none")],
+                [InlineKeyboardButton(text="◀️ Назад к кашам", callback_data="porridge:back:porridge")]
             ]
         )
         
@@ -382,16 +372,15 @@ async def handle_oil_select(callback: types.CallbackQuery):
         }
         oil_name = oil_names.get(oil_type, "")
         
-        # ✅ ИСПРАВЛЕНО: теперь формат "в 14:30" как у покакал
         if oil_name:
-            result_text = f"🥣 {porridge_name} + {oil_name} в {current_time}"
+            result_text = f"🥣 {porridge_name} + {oil_name} в <b>{current_time}</b>"
         else:
-            result_text = f"🥣 {porridge_name} в {current_time}"
+            result_text = f"🥣 {porridge_name} в <b>{current_time}</b>"
         
         if callback.from_user.id in user_selected_porridge:
             del user_selected_porridge[callback.from_user.id]
         
-        await callback.message.edit_text(result_text)
+        await callback.message.edit_text(result_text, parse_mode="HTML")
         await callback.answer()
         
     except Exception as e:
@@ -419,9 +408,9 @@ async def handle_vegetable_select(callback: types.CallbackQuery):
         }
         vegetable_name = vegetable_names.get(vegetable_type, "Овощное пюре")
         
-        result_text = f"{vegetable_name} в {current_time}"
+        result_text = f"{vegetable_name} в <b>{current_time}</b>"
         
-        await callback.message.edit_text(result_text)
+        await callback.message.edit_text(result_text, parse_mode="HTML")
         await callback.answer()
         
     except Exception as e:
@@ -448,9 +437,9 @@ async def handle_fruit_select(callback: types.CallbackQuery):
         }
         fruit_name = fruit_names.get(fruit_type, "Фруктовое пюре")
         
-        result_text = f"{fruit_name} в {current_time}"
+        result_text = f"{fruit_name} в <b>{current_time}</b>"
         
-        await callback.message.edit_text(result_text)
+        await callback.message.edit_text(result_text, parse_mode="HTML")
         await callback.answer()
         
     except Exception as e:
@@ -482,16 +471,10 @@ async def handle_porridge_back(callback: types.CallbackQuery):
         elif back_to == "porridge":
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat"),
-                        InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")
-                    ],
-                    [
-                        InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")
-                    ],
-                    [
-                        InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")
-                    ]
+                    [InlineKeyboardButton(text="🔸 Гречневая", callback_data="porridge:select:buckwheat")],
+                    [InlineKeyboardButton(text="🌾 Рисовая", callback_data="porridge:select:rice")],
+                    [InlineKeyboardButton(text="🌽 Кукурузная", callback_data="porridge:select:corn")],
+                    [InlineKeyboardButton(text="◀️ Назад", callback_data="porridge:back:start")]
                 ]
             )
             await callback.message.edit_text("🥣 Выберите кашу:", reply_markup=keyboard)
@@ -543,9 +526,9 @@ async def handle_medicine_callback(callback: types.CallbackQuery):
         }
         medicine_name = medicine_names.get(medicine_type, "💊 Лекарство")
         
-        result_text = f"{medicine_name} в {current_time}"
+        result_text = f"{medicine_name} в <b>{current_time}</b>"
         
-        await callback.message.edit_text(result_text)
+        await callback.message.edit_text(result_text, parse_mode="HTML")
         await callback.answer()
         
     except Exception as e:
@@ -572,11 +555,11 @@ async def handle_wakeup_callback(callback: types.CallbackQuery):
         minutes = int((duration.total_seconds() % 3600) // 60)
         
         result_text = (
-            f"💤 Сон: с {sleep_start.strftime('%H:%M')} до {wake_time.strftime('%H:%M')}\n"
+            f"💤 Сон: с <b>{sleep_start.strftime('%H:%M')}</b> до <b>{wake_time.strftime('%H:%M')}</b>\n"
             f"⏱ Длительность: {hours} часов {minutes} минут"
         )
         
-        await callback.message.edit_text(result_text)
+        await callback.message.edit_text(result_text, parse_mode="HTML")
         await callback.answer()
         
     except Exception as e:

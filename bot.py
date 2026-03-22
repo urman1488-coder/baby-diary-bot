@@ -343,7 +343,7 @@ async def handle_porridge_select(callback: types.CallbackQuery):
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
 
-# Обработчик выбора масла
+# ========== ИЗМЕНЕННЫЙ ОБРАБОТЧИК ВЫБОРА МАСЛА (С ДОБАВЛЕНИЕМ СЛЕДУЮЩЕГО КОРМЛЕНИЯ) ==========
 @dp.callback_query(F.data.startswith("porridge:oil:"))
 async def handle_oil_select(callback: types.CallbackQuery):
     callback_id = f"{callback.message.chat.id}:{callback.message.message_id}:{callback.data}"
@@ -355,6 +355,7 @@ async def handle_oil_select(callback: types.CallbackQuery):
     try:
         oil_type = callback.data.split(":")[2]
         current_time = get_moscow_time()
+        next_time = get_next_feeding_time()  # ← ПОЛУЧАЕМ ВРЕМЯ СЛЕДУЮЩЕГО КОРМЛЕНИЯ
         porridge_type = user_selected_porridge.get(callback.from_user.id, "buckwheat")
         
         porridge_names = {
@@ -372,10 +373,17 @@ async def handle_oil_select(callback: types.CallbackQuery):
         }
         oil_name = oil_names.get(oil_type, "")
         
+        # ✅ ДОБАВЛЯЕМ СТРОКУ СО СЛЕДУЮЩИМ КОРМЛЕНИЕМ
         if oil_name:
-            result_text = f"🥣 {porridge_name} + {oil_name} в <b>{current_time}</b>"
+            result_text = (
+                f"🥣 {porridge_name} + {oil_name} в <b>{current_time}</b>\n"
+                f"🕒 Следующее кормление в <b>{next_time}</b>"
+            )
         else:
-            result_text = f"🥣 {porridge_name} в <b>{current_time}</b>"
+            result_text = (
+                f"🥣 {porridge_name} в <b>{current_time}</b>\n"
+                f"🕒 Следующее кормление в <b>{next_time}</b>"
+            )
         
         if callback.from_user.id in user_selected_porridge:
             del user_selected_porridge[callback.from_user.id]
@@ -386,6 +394,8 @@ async def handle_oil_select(callback: types.CallbackQuery):
     except Exception as e:
         logger.error(f"❌ Ошибка: {e}")
         await callback.answer("❌ Ошибка", show_alert=True)
+
+# ========== КОНЕЦ ИЗМЕНЕННОГО ОБРАБОТЧИКА ==========
 
 # Обработчик выбора овощей
 @dp.callback_query(F.data.startswith("porridge:vegetable:"))
